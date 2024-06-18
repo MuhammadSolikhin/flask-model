@@ -10,7 +10,6 @@ from functools import wraps
 from datetime import datetime
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'mysecret'
 
 # Initialize Firestore with JSON from environment variable
 service_account_info = json.loads(os.getenv('FIREBASE_CREDENTIALS'))
@@ -31,7 +30,11 @@ def get_transactions_data():
         transactions = transactions_ref.stream()
         for transaction in transactions:
             trans_dict = transaction.to_dict()
-            trans_dict['date'] = datetime.fromtimestamp(trans_dict['date']['seconds'])
+            if 'date' in trans_dict:
+                if isinstance(trans_dict['date'], firestore.SERVER_TIMESTAMP):
+                    trans_dict['date'] = datetime.now()
+                else:
+                    trans_dict['date'] = trans_dict['date'].replace(tzinfo=None)
             data.append(trans_dict)
 
     return pd.DataFrame(data)
