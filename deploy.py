@@ -31,7 +31,7 @@ def get_transactions_data():
         for transaction in transactions:
             trans_dict = transaction.to_dict()
             if 'date' in trans_dict:
-                if isinstance(trans_dict['date'], firestore.SERVER_TIMESTAMP):
+                if trans_dict['date'] == firestore.SERVER_TIMESTAMP:
                     trans_dict['date'] = datetime.now()
                 else:
                     trans_dict['date'] = trans_dict['date'].replace(tzinfo=None)
@@ -61,7 +61,7 @@ def token_required(f):
             decoded_token = auth.verify_id_token(token)
             request.user = decoded_token
         except Exception as e:
-            return jsonify({'message': 'Token is invalid!', 'error': str(e)}), 403
+            return jsonify({'message': 'Token is invalid!'}), 403
         return f(*args, **kwargs)
     return decorated
 
@@ -101,9 +101,6 @@ def predict():
 
     return jsonify({'prediction': pred_growth, 'growth_message': growth_message, 'monthly_growth': monthly_growth})
 
-@app.route('/', methods=['GET'])
-def get_message():
-    return jsonify(message='Hey, your app is working')
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=9000)
+    app.run(debug=True)
