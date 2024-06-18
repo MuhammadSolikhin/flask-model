@@ -2,48 +2,31 @@ from flask import Flask, request, jsonify
 import numpy as np
 import tensorflow as tf
 import pandas as pd
-import warnings
-from sklearn.model_selection import train_test_split
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'mysecret'
 
-warnings.filterwarnings("ignore")
-
 # Load the trained model (adjust the path as needed)
 model = tf.keras.models.load_model('Model.h5', compile=False)
-pred_395 = model.predict(np.array([[395]]))
 
+# Load and preprocess the dataset
 data = pd.read_csv("https://raw.githubusercontent.com/MosesSinanta/Repository_1/main/dataset_1.csv")
-data["Date / Time"] = pd.to_datetime(data["Date / Time"], format = "%d-%m-%Y")
+data["Date / Time"] = pd.to_datetime(data["Date / Time"], format="%d-%m-%Y")
 data["Day"] = data["Date / Time"].dt.day
 data["Month"] = data["Date / Time"].dt.month
 
-days_in_month = {
-    1: 31,
-    2: 28,    # Considering non-leap year
-    3: 31,
-    4: 30,
-    5: 31,
-    6: 30,
-    7: 31,
-    8: 31,
-    9: 30,
-    10: 31,
-    11: 30,
-    12: 31
-}
+# Add "Numerical Date" column based on day of year
+data["Numerical Date"] = data["Date / Time"].dt.dayofyear
+data = data.drop_duplicates(subset=["Numerical Date"], keep="last")
 
-data["Numerical Date"] = 0
-data = data.drop_duplicates(subset = ["Numerical Date"], keep = "last")
+# Drop unnecessary columns
+data = data.drop(columns=["Date / Time", "Mode", "Category", "Sub category", "Income / Expense", "Debit / Credit", "Day"])
 
-data = data.drop(columns = ["Date / Time", "Mode", "Category", "Sub category", "Income / Expense", "Debit / Credit", "Day"])
-
+# Features and target
 X = data[["Numerical Date"]]
 y = data["Cumulative"]
 
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size = 0.2, random_state = 42)
-
+# Function to calculate growth
 def calculate_growth(data):
     if data.empty:
         return 0
@@ -52,35 +35,32 @@ def calculate_growth(data):
     growth = ((end_value - start_value) / start_value) * 100
     return growth
 
+# Calculate growth for specific months
 oct_growth = calculate_growth(data[data["Month"] == 10])
 nov_growth = calculate_growth(data[data["Month"] == 11])
 dec_growth = calculate_growth(data[data["Month"] == 12])
 avg_growth = np.mean([oct_growth, nov_growth, dec_growth])
 
-threshold = 2.50    # Change according to group decision
-
-start_value = data.iloc[-1]["Cumulative"]
-end_value = pred_395
-pred_growth = np.float64(((end_value - start_value) / start_value) * 100)
-
-if (pred_growth >= avg_growth + threshold):
-    print(f"Pertumbuhan keuangan sebesar {pred_growth:.2f}% sangatlah baik!")
-elif (pred_growth < avg_growth - threshold):
-    print(f"Pertumbuhan keuangan sebesar {pred_growth:.2f}% cukup buruk ;-;")
-else:
-    print(f"Pertumbuhan keuangan sebesar {pred_growth:.2f}% sangat stabil!")
-    
-@app.route('/predict', methods=['POST'])
+@app.route('/predict', methods=['GET'])
 def predict():
-    data = request.json
-    # Assuming the input is in JSON format and contains a key 'input_data'
-    input_data = np.array(data['input_data']).reshape(1, -1)  # Adjust the reshape according to your model's input shape
-    
-    # Make prediction
-    prediction = model.predict(input_data)
-    
-    # Assuming the model's prediction is a single value or a 1D array
-    return jsonify({'prediction': prediction.tolist()})
+    # Predict for the input value 395
+    pred_395 = model.predict(np.array([[395]]))
+    threshold = 2.50  # Threshold for growth comparison
+
+    # Calculate growth based on prediction
+    start_value = data.iloc[-1]["Cumulative"]
+    end_value = pred_395[0][0]  # Extract the prediction value from the array
+    pred_growth = ((end_value - start_value) / start_value) * 100
+
+    # Determine growth message
+    if pred_growth >= avg_growth + threshold:
+        growth_message = f"Pertumbuhan keuangan sebesar {pred_growth:.2f}% sangatlah baik!"
+    elif pred_growth < avg_growth - threshold:
+        growth_message = f"Pertumbuhan keuangan sebesar {pred_growth:.2f}% cukup buruk ;-;"
+    else:
+        growth_message = f"Pertumbuhan keuangan sebesar {pred_growth:.2f}% sangat stabil!"
+
+    return jsonify({'prediction': pred_growth, 'growth_message': growth_message})
 
 @app.route('/', methods=['GET'])
 def get_message():
