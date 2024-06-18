@@ -13,42 +13,15 @@ app = Flask(__name__)
 
 # Initialize Firestore with JSON from environment variable
 service_account_info = json.loads(os.getenv('FIREBASE_CREDENTIALS'))
+# with open('firebase.json', 'r') as file:
+#     service_account_info = json.load(file)
+
 cred = credentials.Certificate(service_account_info)
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
 # Load the trained model (adjust the path as needed)
 model = tf.keras.models.load_model('Model.h5', compile=False)
-
-def get_transactions_data():
-    users_ref = db.collection('users')
-    users = users_ref.stream()
-
-    data = []
-    for user in users:
-        transactions_ref = users_ref.document(user.id).collection('transaction')
-        transactions = transactions_ref.stream()
-        for transaction in transactions:
-            trans_dict = transaction.to_dict()
-            if 'date' in trans_dict:
-                if trans_dict['date'] == firestore.SERVER_TIMESTAMP:
-                    trans_dict['date'] = datetime.now()
-                else:
-                    trans_dict['date'] = trans_dict['date'].replace(tzinfo=None)
-            data.append(trans_dict)
-
-    return pd.DataFrame(data)
-
-def calculate_growth(data):
-    growth_per_month = {}
-    for month in data["Month"].unique():
-        monthly_data = data[data["Month"] == month]
-        if not monthly_data.empty:
-            start_value = monthly_data.iloc[0]["Cumulative"]
-            end_value = monthly_data.iloc[-1]["Cumulative"]
-            growth = ((end_value - start_value) / start_value) * 100 if start_value != 0 else 0
-            growth_per_month[month] = growth
-    return growth_per_month
 
 def token_required(f):
     @wraps(f)
@@ -65,12 +38,37 @@ def token_required(f):
         return f(*args, **kwargs)
     return decorated
 
+def get_transactions_data(user_id):
+    transactions_ref = db.collection('users').document(user_id).collection('transaction')
+    transactions = transactions_ref.stream()
+    data = []
+    for transaction in transactions:
+        trans_dict = transaction.to_dict()
+        if 'date' in trans_dict:
+            if trans_dict['date'] == firestore.SERVER_TIMESTAMP:
+                trans_dict['date'] = datetime.now()
+            else:
+                trans_dict['date'] = trans_dict['date'].replace(tzinfo=None)
+        data.append(trans_dict)
+    return pd.DataFrame(data)
+
+def calculate_growth(data):
+    growth_per_month = {}
+    for month in data["Month"].unique():
+        monthly_data = data[data["Month"] == month]
+        if not monthly_data.empty:
+            start_value = monthly_data.iloc[0]["Cumulative"]
+            end_value = monthly_data.iloc[-1]["Cumulative"]
+            growth = ((end_value - start_value) / start_value) * 100 if start_value != 0 else 0
+            growth_per_month[int(month)] = float(growth)  # Convert keys and values to standard Python types
+    return growth_per_month
+
 @app.route('/predict', methods=['GET'])
 @token_required
 def predict():
-    data = get_transactions_data()
-    print(data.head())  # Debug: Print the first few rows of the data
-
+    user_id = request.user['uid']
+    data = get_transactions_data(user_id)
+    print(data.head())
     if 'date' not in data.columns:
         return jsonify({'message': 'Date column not found in data'}), 400
 
@@ -101,6 +99,9 @@ def predict():
 
     return jsonify({'prediction': pred_growth, 'growth_message': growth_message, 'monthly_growth': monthly_growth})
 
+@app.route('/', methods=['GET'])
+def get_message():
+    return jsonify(message='Hey, your app is working')
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host='0.0.0.0', port=9000)
