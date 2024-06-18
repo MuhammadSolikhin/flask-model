@@ -10,6 +10,7 @@ from functools import wraps
 from datetime import datetime
 
 app = Flask(__name__)
+app.config['SECRET_KEY'] = 'mysecret'
 
 # Initialize Firestore with JSON from environment variable
 service_account_info = json.loads(os.getenv('FIREBASE_CREDENTIALS'))
@@ -29,7 +30,9 @@ def get_transactions_data():
         transactions_ref = users_ref.document(user.id).collection('transaction')
         transactions = transactions_ref.stream()
         for transaction in transactions:
-            data.append(transaction.to_dict())
+            trans_dict = transaction.to_dict()
+            trans_dict['date'] = datetime.fromtimestamp(trans_dict['date']['seconds'])
+            data.append(trans_dict)
 
     return pd.DataFrame(data)
 
@@ -40,7 +43,7 @@ def calculate_growth(data):
         if not monthly_data.empty:
             start_value = monthly_data.iloc[0]["Cumulative"]
             end_value = monthly_data.iloc[-1]["Cumulative"]
-            growth = ((end_value - start_value) / start_value) * 100
+            growth = ((end_value - start_value) / start_value) * 100 if start_value != 0 else 0
             growth_per_month[month] = growth
     return growth_per_month
 
@@ -63,11 +66,17 @@ def token_required(f):
 @token_required
 def predict():
     data = get_transactions_data()
-    data["Date"] = pd.to_datetime(data["Date"], format="%d-%m-%Y")
-    data = data.sort_values(by="Date")
+    print(data.head())  # Debug: Print the first few rows of the data
 
-    data["Cumulative"] = data["income"] - data["expense"]
-    data["Month"] = data["Date"].dt.month
+    if 'date' not in data.columns:
+        return jsonify({'message': 'Date column not found in data'}), 400
+
+    data["date"] = pd.to_datetime(data["date"], errors='coerce')
+    data = data.sort_values(by="date")
+
+    # Calculate cumulative based on type (income/expense)
+    data["Cumulative"] = data.apply(lambda x: x["amount"] if x["type"] == "income" else -x["amount"], axis=1).cumsum()
+    data["Month"] = data["date"].dt.month
 
     monthly_growth = calculate_growth(data)
     valid_months_growth = [growth for growth in monthly_growth.values() if not np.isnan(growth)]
