@@ -3,6 +3,7 @@ import numpy as np
 import tensorflow as tf
 import pandas as pd
 import os
+import json
 import firebase_admin
 from firebase_admin import credentials, firestore, auth
 from functools import wraps
@@ -10,9 +11,9 @@ from datetime import datetime
 
 app = Flask(__name__)
 
-# Initialize Firestore
-service_account_path = os.getenv('FIREBASE_CREDENTIALS')
-cred = credentials.Certificate(service_account_path)
+# Initialize Firestore with JSON from environment variable
+service_account_info = json.loads(os.getenv('FIREBASE_CREDENTIALS'))
+cred = credentials.Certificate(service_account_info)
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
